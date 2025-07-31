@@ -77,6 +77,7 @@ public class HelloApplication extends Application {
         IN_TOWN,
         WEAPON_SHOP
     }
+
     private GameState currentState;
 
     private Random random = new Random();
@@ -335,12 +336,13 @@ public class HelloApplication extends Application {
         }
     }
 
-    private void startNormalEncounter(){
+    private void startNormalEncounter() {
         int numEnemies = random.nextInt(3) + 1;
         currentEnemies = new Enemy[numEnemies];
         StringBuilder encounterMessage = new StringBuilder("\n");
-        for (int i =0; i < numEnemies; i++) {
-            currentEnemies[i] = generateRandomEnemy();
+        MapTileType playerCurrentTileType = gameMap.getTileType(playerX, playerY);
+        for (int i = 0; i < numEnemies; i++) {
+            currentEnemies[i] = generateRandomEnemy(playerCurrentTileType);
             encounterMessage.append("敵！").append(currentEnemies[i].getName()).append("」が現れた！ ");
         }
         appendMessage(encounterMessage.toString());
@@ -570,17 +572,22 @@ public class HelloApplication extends Application {
         }
     }
 
-private String elementToString(Element element) {
+    private String elementToString(Element element) {
         switch (element) {
-            case FIRE: return "火";
-            case ICE: return "氷";
-            case THUNDER: return "雷";
-            case WIND: return "風";
-            default: return "？";
+            case FIRE:
+                return "火";
+            case ICE:
+                return "氷";
+            case THUNDER:
+                return "雷";
+            case WIND:
+                return "風";
+            default:
+                return "？";
         }
-}
+    }
 
-private void updateUIForState(GameState newState) {
+    private void updateUIForState(GameState newState) {
         currentState = newState;
 
         attackButton.setVisible(false);
@@ -639,33 +646,57 @@ private void updateUIForState(GameState newState) {
             mapAndPlayerPane.setVisible(true);
             weaponShopScrollPane.setVisible(true);
             appendMessage("\n武器屋：いらっしゃい！");
+        }
     }
-}
 
-private void appendMessage(String message) {
+    private void appendMessage(String message) {
         messageTextArea.appendText("\n" + message);
         messageTextArea.setScrollTop(Double.MAX_VALUE);
-}
+    }
 
-public Enemy generateRandomEnemy() {
-        int type = random.nextInt(3);
+    public Enemy generateRandomEnemy(MapTileType tileType) {
+        int type;
 
-        switch (type) {
-            case 0:
-                return new Enemy("スライム", 10,3,5, Element.FIRE, 5);
-            case 1:
-                return new Enemy("ゴブリン", 15, 5, 10, Element.ICE, 10);
-            case 2:
-                return new Enemy("オオカミ", 20, 6, 12, Element.THUNDER, 15);
-            default:
-                return new Enemy("謎の敵", 12, 4, 8, Element.WIND, 8);
+        if (tileType == MapTileType.FOREST) {
+            type = random.nextInt(2);
+            switch (type) {
+                case 0:
+                    return new Enemy("キラービー", 12, 4, 8, Element.WIND, 7);
+                case 1:
+                    return new Enemy("ゾンビ", 18, 6, 15, Element.FIRE, 12);
+                default:
+                    return new Enemy("キラービー", 12, 4, 8, Element.WIND, 7);
+            }
+        } else if (tileType == MapTileType.MOUNTAIN_BROWN) {
+            type = random.nextInt(2);
+            switch (type) {
+                case 0:
+                    return new Enemy("ガルーダ", 15, 5, 10, Element.WIND, 10);
+                case 1:
+                    return new Enemy("亡霊剣士", 25, 8, 20, Element.ICE, 10);
+                default:
+                    return new Enemy("ガルーダ", 15, 5, 10, Element.WIND, 10);
+            }
+        } else {
+            type = random.nextInt(3);
+            switch (type) {
+                case 0:
+                    return new Enemy("スライム", 10, 3, 5, Element.FIRE, 5);
+                case 1:
+                    return new Enemy("ゴブリン", 15, 5, 10, Element.ICE, 10);
+                case 2:
+                    return new Enemy("オオカミ", 20, 6, 12, Element.THUNDER, 15);
+                default:
+                    return new Enemy("謎の敵", 12, 4, 8, Element.WIND, 8);
+            }
         }
-}
+    }
 
 
 
 private void loadEnemyImages() {
     enemyImageDisplayBox.getChildren().clear();
+
         if (currentEnemies != null) {
             for (Enemy enemy : currentEnemies) {
                 if (enemy.isAlive()) {
@@ -682,6 +713,18 @@ private void loadEnemyImages() {
                             break;
                         case "ドラゴン":
                             imagePath = "/dragon.png";
+                            break;
+                        case "キラービー":
+                            imagePath = "/killer_bee.png";
+                            break;
+                        case "ゾンビ":
+                            imagePath = "/zombie.png";
+                            break;
+                        case "ガルーダ":
+                            imagePath = "/garuda.png";
+                            break;
+                        case "亡霊剣士":
+                            imagePath = "/phantom_swordman.png";
                             break;
                         default:
                             System.err.println("対応する画像ファイルが指定されていません: " + enemy.getName());
