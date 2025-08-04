@@ -15,6 +15,7 @@ import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.VBox;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
+import javafx.scene.layout.Priority;
 import javafx.stage.Stage;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,10 +31,6 @@ public class HelloApplication extends Application {
     private Label playerGoldLabel;
 
     private HBox enemyStatsDisplayBox;
-
-    //private Label enemyNameLabel;
-    //private Label enemyHpLabel;
-    //private List<Label> enemyHpLabels;
 
     private TextArea messageTextArea;
 
@@ -62,6 +59,15 @@ public class HelloApplication extends Application {
     private Button backFromWeaponShopButton;
     private ScrollPane weaponShopScrollPane;
 
+    private VBox resultBox;
+    private Label resultLabelExp;
+    private Label resultLabelGold;
+    private Label resultLabelLevelUp;
+    private Button continueButton;
+    private ScrollPane resultScrollPane;
+
+    private VBox buttonPanel;
+
     private Player player;
     private Enemy[] currentEnemies;
     private Stage primaryStage;
@@ -72,6 +78,7 @@ public class HelloApplication extends Application {
         EXPLORING,
         BATTLE,
         MAGIC_SELECT,
+        BATTLE_RESULT,
         GAMEOVER,
         WIN_ROUND,
         IN_TOWN,
@@ -97,6 +104,10 @@ public class HelloApplication extends Application {
     private StackPane mapAndPlayerPane;
     private HBox enemyImageDisplayBox;
 
+    private int gainedExp;
+    private int gainedGold;
+    private boolean leveledUp;
+
     @Override
     public void start(Stage primaryStage) {
         this.primaryStage = primaryStage;
@@ -105,6 +116,7 @@ public class HelloApplication extends Application {
         town = new Town();
         currentState = GameState.EXPLORING;
 
+        // UIコンポーネントの初期化を順序立てて再配置
         playerNameLabel = new Label("名前: " + player.getName());
         playerHpLabel = new Label("HP: " + player.getHp() + "/" + player.getMaxHp());
         playerMpLabel = new Label("MP: " + player.getMp() + "/" + player.getMaxMp());
@@ -113,49 +125,33 @@ public class HelloApplication extends Application {
         playerWeaponLabel = new Label("装備: " + player.getEquippedWeapon().getName() + "(攻: " + player.getEquippedWeapon().getAttackPower() + ")");
         playerGoldLabel = new Label("所持金: " + player.getGold() + " GOLD");
 
-//        enemyHpLabels = new ArrayList<>();
-//        enemyNameLabel = new Label("敵: ");
-//        enemyHpLabel = new Label("敵HP: ");
-//        enemyHpLabels.add(enemyHpLabel);
-//        enemyNameLabel.setVisible(false);
-//        enemyHpLabel.setVisible(false);
-
         messageTextArea = new TextArea("===YUIT QUEST START! ===\n矢印キーで移動してください。");
         messageTextArea.setEditable(false);
         messageTextArea.setWrapText(true);
         messageTextArea.setPrefRowCount(5);
+        messageTextArea.setPrefHeight(100);
 
         attackButton = new Button("攻撃する");
         attackButton.setOnAction(e -> handleAttack());
-
         magicButton = new Button("まほう");
         magicButton.setOnAction(e -> handleMagicSelect());
-
         potionButton = new Button("ポーションを使う");
         potionButton.setOnAction(e -> handleUsePotion());
-
         escapeButton = new Button("逃げる");
         escapeButton.setOnAction(e -> handleEscape());
-
         multiAttackButton = new Button("範囲攻撃");
         multiAttackButton.setOnAction(e -> handleMultiAttack());
 
-
         fireMagicButton = new Button("火");
         fireMagicButton.setOnAction(e -> handleMagicAttack(Element.FIRE));
-
         iceMagicButton = new Button("氷");
         iceMagicButton.setOnAction(e -> handleMagicAttack(Element.ICE));
-
         thunderMagicButton = new Button("雷");
         thunderMagicButton.setOnAction(e -> handleMagicAttack(Element.THUNDER));
-
         windMagicButton = new Button("風");
         windMagicButton.setOnAction(e -> handleMagicAttack(Element.WIND));
-
         backButton = new Button("戻る");
         backButton.setOnAction(e -> updateUIForState(GameState.BATTLE));
-
         magicButtonsBox = new HBox(10, fireMagicButton, iceMagicButton, thunderMagicButton, windMagicButton, backButton);
         magicButtonsBox.setAlignment(Pos.CENTER);
         magicButtonsBox.setVisible(false);
@@ -166,17 +162,13 @@ public class HelloApplication extends Application {
 
         innButton = new Button("宿屋 (HP/MP全回復)");
         innButton.setOnAction(e -> handleInn());
-
         final int POTION_PRICE = 10;
         itemShopButton = new Button("道具屋(ポーション " + POTION_PRICE + " GOLD)");
         itemShopButton.setOnAction(e -> handleItemShop(POTION_PRICE));
-
         weaponShopButton = new Button("武器屋 (装備購入)");
         weaponShopButton.setOnAction(e -> handleWeaponShop());
-
         exitTownButton = new Button("村を出る");
         exitTownButton.setOnAction(e -> handleExitTown());
-
         townButtonsBox = new HBox(10, innButton, itemShopButton, weaponShopButton, exitTownButton);
         townButtonsBox.setAlignment(Pos.CENTER);
         townButtonsBox.setVisible(false);
@@ -184,22 +176,33 @@ public class HelloApplication extends Application {
         Weapon ironSword = town.getWeaponsForSale().get(0);
         buyIronSwordButton = new Button(ironSword.getName() + " (攻" + ironSword.getAttackPower() + ", " + ironSword.getPrice() + " GOLD)");
         buyIronSwordButton.setOnAction(e -> handleBuyWeapon(ironSword));
-
         Weapon naginata = town.getWeaponsForSale().get(1);
         buyNaginataButton = new Button(naginata.getName() + " (攻" + naginata.getAttackPower() + ", " + naginata.getPrice() + " GOLD)");
         buyNaginataButton.setOnAction(e -> handleBuyWeapon(naginata));
-
         backFromWeaponShopButton = new Button("戻る");
         backFromWeaponShopButton.setOnAction(e -> updateUIForState(GameState.IN_TOWN));
 
         weaponShopVBox = new VBox(10, new Label("武器屋の品揃え:"), buyIronSwordButton, buyNaginataButton, backFromWeaponShopButton);
         weaponShopVBox.setAlignment(Pos.CENTER);
-//        weaponShopVBox.setVisible(false);
         weaponShopScrollPane = new ScrollPane(weaponShopVBox);
         weaponShopScrollPane.setFitToWidth(true);
         weaponShopScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         weaponShopScrollPane.setVisible(false);
 
+        resultLabelExp = new Label();
+        resultLabelGold = new Label();
+        resultLabelLevelUp = new Label();
+        continueButton = new Button("続ける");
+        continueButton.setOnAction(e -> handleContinue());
+        resultBox = new VBox(20, resultLabelExp, resultLabelGold, resultLabelLevelUp, continueButton);
+        resultBox.setAlignment(Pos.CENTER);
+
+        resultScrollPane = new ScrollPane(resultBox);
+        resultScrollPane.setFitToWidth(true);
+        resultScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        resultScrollPane.setVisible(false);
+
+        ImageView playerViewTemp = null;
         try {
             Image mapImage = new Image(getClass().getResourceAsStream("/MAP.jpg"));
             mapView = new ImageView(mapImage);
@@ -208,22 +211,23 @@ public class HelloApplication extends Application {
             mapView.setFitHeight(MAP_DISPLAY_HEIGHT * TILE_SIZE);
 
             Image playerImage = new Image(getClass().getResourceAsStream("/Player2D.png"));
-            playerView = new ImageView(playerImage);
-            playerView.setFitWidth(TILE_SIZE);
-            playerView.setFitHeight(TILE_SIZE);
+            playerViewTemp = new ImageView(playerImage);
+            playerViewTemp.setFitWidth(TILE_SIZE);
+            playerViewTemp.setFitHeight(TILE_SIZE);
 
-            mapAndPlayerPane = new StackPane(mapView, playerView);
+            mapAndPlayerPane = new StackPane(mapView, playerViewTemp);
             mapAndPlayerPane.setAlignment(Pos.TOP_LEFT);
             mapAndPlayerPane.setPrefSize(MAP_DISPLAY_WIDTH * TILE_SIZE, MAP_DISPLAY_HEIGHT * TILE_SIZE);
             mapAndPlayerPane.setMinSize(MAP_DISPLAY_WIDTH * TILE_SIZE, MAP_DISPLAY_HEIGHT * TILE_SIZE);
-
-            updatePlayerPositionOnMap();
-
         } catch (Exception e) {
             System.err.println("画像ファイルの読み込みに失敗しました: " + e.getMessage());
             mapView = new ImageView();
-            playerView = new ImageView();
+            playerViewTemp = new ImageView();
             mapAndPlayerPane = new StackPane();
+        }
+        playerView = playerViewTemp;
+        if(playerView != null) {
+            updatePlayerPositionOnMap();
         }
 
         enemyImageDisplayBox = new HBox(10);
@@ -232,9 +236,9 @@ public class HelloApplication extends Application {
         enemyImageDisplayBox.setVisible(false);
 
         VBox root = new VBox(10);
-//        root.setPadding(new Insets(20));
-//        root.setAlignment(Pos.TOP_CENTER);
-
+        root.setPadding(new Insets(20));
+        root.setAlignment(Pos.TOP_CENTER);
+        VBox.setVgrow(messageTextArea, Priority.ALWAYS);
 
         VBox playerStatsBox = new VBox(5, playerNameLabel, playerHpLabel, playerMpLabel, playerLevelExpLabel, playerPotionLabel, playerWeaponLabel, playerGoldLabel);
         playerStatsBox.setAlignment(Pos.TOP_LEFT);
@@ -243,20 +247,19 @@ public class HelloApplication extends Application {
         enemyStatsDisplayBox = new HBox(20);
         enemyStatsDisplayBox.setAlignment(Pos.TOP_RIGHT);
         enemyStatsDisplayBox.setPadding(new Insets(0, 0, 10, 0));
-        //enemyStatsHBox.getChildren().addAll(enemyNameLabel, enemyHpLabel);
 
         HBox topInfoBox = new HBox(50, playerStatsBox, enemyStatsDisplayBox);
         topInfoBox.setAlignment(Pos.TOP_CENTER);
+
+        buttonPanel = new VBox(10, actionButtonsBox, magicButtonsBox, townButtonsBox, weaponShopScrollPane, resultScrollPane);
+        buttonPanel.setAlignment(Pos.CENTER);
 
         root.getChildren().addAll(
                 topInfoBox,
                 enemyImageDisplayBox,
                 mapAndPlayerPane,
                 messageTextArea,
-                actionButtonsBox,
-                magicButtonsBox,
-                townButtonsBox,
-                weaponShopScrollPane
+                buttonPanel
         );
 
         Scene scene = new Scene(root, 600, 750);
@@ -272,8 +275,10 @@ public class HelloApplication extends Application {
     }
 
     private void updatePlayerPositionOnMap() {
-        playerView.setTranslateX(playerX * TILE_SIZE);
-        playerView.setTranslateY(playerY * TILE_SIZE);
+        if(playerView != null){
+            playerView.setTranslateX(playerX * TILE_SIZE);
+            playerView.setTranslateY(playerY * TILE_SIZE);
+        }
     }
 
     private void handleKeyPress(KeyEvent event) {
@@ -314,10 +319,12 @@ public class HelloApplication extends Application {
                 updatePlayerPositionOnMap();
                 appendMessage("\n現在地: (" + playerX + ", " + playerY + ")");
 
-                if (gameMap.getTileType(playerX, playerY) == MapTileType.TOWN) {
+                MapTileType currentTileType = gameMap.getTileType(playerX, playerY);
+
+                if (currentTileType == MapTileType.TOWN) {
                     appendMessage("\n村に到着した！");
                     updateUIForState(GameState.IN_TOWN);
-                } else if (gameMap.getTileType(playerX, playerY) == MapTileType.CAVE) {
+                } else if (currentTileType == MapTileType.CAVE) {
                     appendMessage("\n洞窟の奥からドラゴンが現れた！");
                     startBossEncounter();
                 } else {
@@ -343,7 +350,7 @@ public class HelloApplication extends Application {
         MapTileType playerCurrentTileType = gameMap.getTileType(playerX, playerY);
         for (int i = 0; i < numEnemies; i++) {
             currentEnemies[i] = generateRandomEnemy(playerCurrentTileType);
-            encounterMessage.append("敵！").append(currentEnemies[i].getName()).append("」が現れた！ ");
+            encounterMessage.append("敵「").append(currentEnemies[i].getName()).append("」が現れた！ ");
         }
         appendMessage(encounterMessage.toString());
 
@@ -491,6 +498,8 @@ public class HelloApplication extends Application {
         boolean allEnemiesDead = true;
         int totalExp = 0;
         int totalGold = 0;
+        int playerLevelBefore = player.getLevel();
+
         if (currentEnemies != null) {
             for (Enemy enemy : currentEnemies) {
                 if (enemy.isAlive()) {
@@ -517,9 +526,12 @@ public class HelloApplication extends Application {
                 appendMessage("\n敵をすべてたおした！");
                 player.gainExp(totalExp);
                 player.addGold(totalGold);
-                appendMessage(totalGold + " GOLD を手に入れた！");
-                updatePlayerStatsUI();
-                updateUIForState(GameState.WIN_ROUND);
+
+                gainedExp = totalExp;
+                gainedGold = totalGold;
+                leveledUp = (player.getLevel() > playerLevelBefore);
+
+                updateUIForState(GameState.BATTLE_RESULT);
             }
         }
     }
@@ -544,7 +556,7 @@ public class HelloApplication extends Application {
         playerNameLabel.setText("名前: " + player.getName());
         playerHpLabel.setText("HP: " + player.getHp() + "/" + player.getMaxHp());
         playerMpLabel.setText("MP: " + player.getMp() + "/" + player.getMaxMp());
-        playerLevelExpLabel.setText("Lv: " + player.getLevel() + " Exp: " + player.getExpToLevelUp());
+        playerLevelExpLabel.setText("Lv: " + player.getLevel() + " Exp: " + player.getExp() + "/" + player.getExpToLevelUp());
         playerPotionLabel.setText("ポーション: " + player.getPotionCount() + "個");
         playerWeaponLabel.setText("装備: " + player.getEquippedWeapon().getName() + " (攻:" + player.getEquippedWeapon().getAttackPower() + ")");
         playerGoldLabel.setText("所持金: " + player.getGold() + " GOLD");
@@ -597,8 +609,8 @@ public class HelloApplication extends Application {
         multiAttackButton.setVisible(false);
         magicButtonsBox.setVisible(false);
         townButtonsBox.setVisible(false);
-//        weaponShopVBox.setVisible(false);
         weaponShopScrollPane.setVisible(false);
+        resultScrollPane.setVisible(false);
 
         mapAndPlayerPane.setVisible(false);
         enemyImageDisplayBox.setVisible(false);
@@ -625,6 +637,16 @@ public class HelloApplication extends Application {
             mapAndPlayerPane.setVisible(false);
             enemyImageDisplayBox.setVisible(true);
             magicButtonsBox.setVisible(true);
+        } else if (currentState == GameState.BATTLE_RESULT) {
+            resultScrollPane.setVisible(true);
+            resultLabelExp.setText("経験値 " + gainedExp + " を獲得した！");
+            resultLabelGold.setText("所持金が " + gainedGold + " GOLD増えた！");
+            if (leveledUp) {
+                resultLabelLevelUp.setText("レベルアップ！");
+            } else {
+                resultLabelLevelUp.setText("");
+            }
+            appendMessage("\n戦闘に勝利した！");
         } else if (currentState == GameState.GAMEOVER) {
             mapAndPlayerPane.setVisible(false);
             enemyImageDisplayBox.setVisible(false);
@@ -638,8 +660,6 @@ public class HelloApplication extends Application {
         } else if (currentState == GameState.IN_TOWN) {
             mapAndPlayerPane.setVisible(true);
             townButtonsBox.setVisible(true);
-            //enemyNameLabel.setVisible(false);
-            //enemyHpLabel.setVisible(false);
             updateEnemyStatsUI();
             appendMessage("\n村に到着した。何をしますか？");
         } else if (currentState == GameState.WEAPON_SHOP) {
@@ -692,10 +712,8 @@ public class HelloApplication extends Application {
         }
     }
 
-
-
-private void loadEnemyImages() {
-    enemyImageDisplayBox.getChildren().clear();
+    private void loadEnemyImages() {
+        enemyImageDisplayBox.getChildren().clear();
 
         if (currentEnemies != null) {
             for (Enemy enemy : currentEnemies) {
@@ -749,26 +767,26 @@ private void loadEnemyImages() {
         }
     }
 
-private void handleInn() {
+    private void handleInn() {
         town.restAtInn(player);
         updatePlayerStatsUI();
         appendMessage("宿屋で休んだ！HPとMPが全回復した！");
-}
+    }
 
-private void handleItemShop(int price) {
+    private void handleItemShop(int price) {
         if (town.buyPotion(player, price)) {
             updatePlayerStatsUI();
             appendMessage("ポーションを1個購入した！ " + price + " GOLDを消費した。");
         } else {
             appendMessage("ゴールドが足りません！ ポーションを購入出来ませんでした。");
         }
-}
+    }
 
-private void handleWeaponShop() {
+    private void handleWeaponShop() {
         updateUIForState(GameState.WEAPON_SHOP);
-}
+    }
 
-private void handleBuyWeapon(Weapon weapon) {
+    private void handleBuyWeapon(Weapon weapon) {
         if (player.getEquippedWeapon().getName().equals(weapon.getName())) {
             appendMessage(weapon.getName() + "はすでに装備している！");
             return;
@@ -782,14 +800,21 @@ private void handleBuyWeapon(Weapon weapon) {
         }
 
         updateUIForState(GameState.WEAPON_SHOP);
-}
+    }
 
-private void handleExitTown() {
+    private void handleExitTown() {
         appendMessage("村を出た。探索を再開します。");
         updateUIForState(GameState.EXPLORING);
-}
+    }
 
-public static void main(String[] args) {
+    private void handleContinue() {
+        currentEnemies = null;
+        updateEnemyStatsUI();
+        appendMessage("冒険を続ける...");
+        updateUIForState(GameState.EXPLORING);
+    }
+
+    public static void main(String[] args) {
         launch(args);
     }
 }
