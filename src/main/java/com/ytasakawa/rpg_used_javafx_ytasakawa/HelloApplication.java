@@ -4,6 +4,7 @@ import javafx.application.Application;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
+import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextArea;
@@ -17,6 +18,9 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.Priority;
 import javafx.stage.Stage;
+import javafx.scene.media.Media;
+import javafx.scene.media.MediaPlayer;
+import javafx.util.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -70,9 +74,11 @@ public class HelloApplication extends Application {
 
     private Player player;
     private Enemy[] currentEnemies;
+    private Enemy selectedTarget;
     private Stage primaryStage;
     private GameMap gameMap;
     private Town town;
+
 
     private enum GameState {
         EXPLORING,
@@ -103,6 +109,11 @@ public class HelloApplication extends Application {
     private ImageView playerView;
     private StackPane mapAndPlayerPane;
     private HBox enemyImageDisplayBox;
+    private StackPane mainContentPane;
+
+    private MediaPlayer bgmPlayer;
+    private MediaPlayer sePlayer;
+    private ImageView effectImageView;
 
     private int gainedExp;
     private int gainedGold;
@@ -116,7 +127,6 @@ public class HelloApplication extends Application {
         town = new Town();
         currentState = GameState.EXPLORING;
 
-        // UIコンポーネントの初期化を順序立てて再配置
         playerNameLabel = new Label("名前: " + player.getName());
         playerHpLabel = new Label("HP: " + player.getHp() + "/" + player.getMaxHp());
         playerMpLabel = new Label("MP: " + player.getMp() + "/" + player.getMaxMp());
@@ -251,13 +261,24 @@ public class HelloApplication extends Application {
         HBox topInfoBox = new HBox(50, playerStatsBox, enemyStatsDisplayBox);
         topInfoBox.setAlignment(Pos.TOP_CENTER);
 
-        buttonPanel = new VBox(10, actionButtonsBox, magicButtonsBox, townButtonsBox, weaponShopScrollPane, resultScrollPane);
+        effectImageView = new ImageView();
+        effectImageView.setFitWidth(100);
+        effectImageView.setFitHeight(100);
+        effectImageView.setPreserveRatio(true);
+        effectImageView.setVisible(false);
+
+        mainContentPane = new StackPane();
+        mainContentPane.setAlignment(Pos.CENTER);
+        mainContentPane.getChildren().addAll(mapAndPlayerPane, enemyImageDisplayBox, resultScrollPane, effectImageView);
+
+        buttonPanel = new VBox(10, actionButtonsBox, magicButtonsBox, townButtonsBox, weaponShopScrollPane);
         buttonPanel.setAlignment(Pos.CENTER);
+
+        playBGM("bgm_field.mp3");
 
         root.getChildren().addAll(
                 topInfoBox,
-                enemyImageDisplayBox,
-                mapAndPlayerPane,
+                mainContentPane,
                 messageTextArea,
                 buttonPanel
         );
@@ -373,22 +394,30 @@ public class HelloApplication extends Application {
     private void handleAttack() {
         if (currentState != GameState.BATTLE) return;
 
-        Enemy targetEnemy = null;
-        for (Enemy enemy : currentEnemies) {
-            if (enemy.isAlive()) {
-                targetEnemy = enemy;
-                break;
-            }
-        }
-
-        if (targetEnemy == null) {
-            appendMessage("攻撃する敵がいません。");
+        if (selectedTarget == null || !selectedTarget.isAlive()) {
+            appendMessage("攻撃するターゲットがいません。モンスターをクリックして選択してください。");
             return;
         }
+        Enemy targetEnemy = selectedTarget;
 
         int playerAttackDamage = player.getEquippedWeapon().getAttackPower() + player.getLevel();
         targetEnemy.takeDamage(playerAttackDamage);
         appendMessage(player.getName() + "のこうげき！ " + targetEnemy.getName() + "に" + playerAttackDamage + "のダメージ！");
+
+        if (!targetEnemy.isAlive()) {
+            appendMessage(targetEnemy.getName() + " を倒した！");
+        }
+
+        playSE("se_attack.mp3");
+        displayEffect("/effect_attack.png", targetEnemy);
+
+        updateEnemyStatsUI();
+        loadEnemyImages();
+        checkBattleEnd();
+
+        if (!targetEnemy.isAlive()) {
+            loadEnemyImages();
+        }
 
         checkBattleEnd();
         if (currentState == GameState.BATTLE) {
@@ -403,12 +432,23 @@ public class HelloApplication extends Application {
             int baseDamage = player.getEquippedWeapon().getAttackPower() / 2 + player.getLevel();
 
             appendMessage(player.getName() + "の範囲攻撃！");
+            playSE("se_attack.mp3");
+            displayEffect("/effect_multiattack.png", null);
+
+            boolean anyEnemyDefeated = false;
             for (Enemy enemy : currentEnemies) {
                 if (enemy.isAlive()) {
                     enemy.takeDamage(baseDamage);
                     appendMessage(enemy.getName() + "に" + baseDamage + "のダメージ！");
+                    if (!enemy.isAlive()) {
+                        appendMessage(enemy.getName() + " を倒した！");
+                        anyEnemyDefeated = true;
+                    }
                 }
             }
+            updateEnemyStatsUI();
+            loadEnemyImages();
+
             checkBattleEnd();
             if (currentState == GameState.BATTLE) {
                 enemyTurn();
@@ -434,19 +474,11 @@ public class HelloApplication extends Application {
             return;
         }
 
-        Enemy targetEnemy = null;
-        for (Enemy enemy : currentEnemies) {
-            if (enemy.isAlive()) {
-                targetEnemy = enemy;
-                break;
-            }
-        }
-
-        if (targetEnemy == null) {
-            appendMessage("魔法をつかう敵がいない！");
-            updateUIForState(GameState.BATTLE);
+        if (selectedTarget == null || !selectedTarget.isAlive()) {
+            appendMessage("攻撃するターゲットがいません。モンスターをクリックして選択してください。");
             return;
         }
+        Enemy targetEnemy = selectedTarget;
 
         int baseDamage = 10 + player.getLevel();
         boolean isWeak = (element == targetEnemy.getWeakElement());
@@ -458,8 +490,30 @@ public class HelloApplication extends Application {
             appendMessage("弱点を突いた！");
         }
         appendMessage("MPを " + magicCost + " 消費した (残りMP: " + player.getMp() + ")");
+        updatePlayerStatsUI();
+
+        playSE("se_magic.mp3");
+        switch (element) {
+            case FIRE:
+                displayEffect("/effect_fire.png", targetEnemy);
+                break;
+            case ICE:
+                displayEffect("/effect_ice.png", targetEnemy);
+                break;
+            case THUNDER:
+                displayEffect("/effect_thunder.png", targetEnemy);
+                break;
+            case WIND:
+                displayEffect("/effect_wind.png", targetEnemy);
+                break;
+        }
+
+        if (!targetEnemy.isAlive()) {
+            appendMessage(targetEnemy.getName() + " を倒した！");
+        }
 
         updatePlayerStatsUI();
+        loadEnemyImages();
 
         checkBattleEnd();
         if (currentState == GameState.BATTLE) {
@@ -610,10 +664,10 @@ public class HelloApplication extends Application {
         magicButtonsBox.setVisible(false);
         townButtonsBox.setVisible(false);
         weaponShopScrollPane.setVisible(false);
-        resultScrollPane.setVisible(false);
 
         mapAndPlayerPane.setVisible(false);
         enemyImageDisplayBox.setVisible(false);
+        resultScrollPane.setVisible(false);
 
         if (currentState == GameState.EXPLORING) {
             mapAndPlayerPane.setVisible(true);
@@ -622,6 +676,7 @@ public class HelloApplication extends Application {
             if (primaryStage.getScene() != null) {
                 primaryStage.getScene().getRoot().requestFocus();
             }
+            playBGM("bgm_field.mp3");
         } else if (currentState == GameState.BATTLE) {
             mapAndPlayerPane.setVisible(false);
             enemyImageDisplayBox.setVisible(true);
@@ -633,6 +688,7 @@ public class HelloApplication extends Application {
                 multiAttackButton.setVisible(true);
             }
             updateEnemyStatsUI();
+            playBGM("bgm_nomal_battle.mp3");
         } else if (currentState == GameState.MAGIC_SELECT) {
             mapAndPlayerPane.setVisible(false);
             enemyImageDisplayBox.setVisible(true);
@@ -650,6 +706,7 @@ public class HelloApplication extends Application {
         } else if (currentState == GameState.GAMEOVER) {
             mapAndPlayerPane.setVisible(false);
             enemyImageDisplayBox.setVisible(false);
+            playBGM("bgm_gameover.mp3");
         } else if (currentState == GameState.WIN_ROUND) {
             mapAndPlayerPane.setVisible(false);
             enemyImageDisplayBox.setVisible(false);
@@ -662,6 +719,7 @@ public class HelloApplication extends Application {
             townButtonsBox.setVisible(true);
             updateEnemyStatsUI();
             appendMessage("\n村に到着した。何をしますか？");
+            playBGM("bgm_town.mp3");
         } else if (currentState == GameState.WEAPON_SHOP) {
             mapAndPlayerPane.setVisible(true);
             weaponShopScrollPane.setVisible(true);
@@ -755,6 +813,13 @@ public class HelloApplication extends Application {
                         view.setFitWidth(100);
                         view.setFitHeight(100);
                         view.setPreserveRatio(true);
+                        view.setUserData(enemy);
+
+                        view.setOnMouseClicked(event -> {
+                            selectedTarget = (Enemy) view.getUserData();
+                            updateTargetSelectionUI();
+                            appendMessage(selectedTarget.getName() + " をターゲットに選択した！");
+                        });
 
                         enemyImageDisplayBox.getChildren().add(view);
                     } catch (NullPointerException e) {
@@ -764,6 +829,15 @@ public class HelloApplication extends Application {
                     }
                 }
             }
+            if (selectedTarget == null || !selectedTarget.isAlive()) {
+                for (Enemy enemy : currentEnemies) {
+                    if (enemy.isAlive()) {
+                        selectedTarget = enemy;
+                        break;
+                    }
+                }
+            }
+            updateTargetSelectionUI();
         }
     }
 
@@ -810,8 +884,76 @@ public class HelloApplication extends Application {
     private void handleContinue() {
         currentEnemies = null;
         updateEnemyStatsUI();
+        updatePlayerStatsUI();
         appendMessage("冒険を続ける...");
         updateUIForState(GameState.EXPLORING);
+    }
+
+    private void playBGM(String bgmFileName) {
+        if (bgmPlayer != null) {
+            bgmPlayer.stop();
+        }
+        String musicFile = getClass().getResource("/" + bgmFileName).toExternalForm();
+        Media media = new Media(musicFile);
+        bgmPlayer = new MediaPlayer(media);
+        bgmPlayer.setCycleCount(MediaPlayer.INDEFINITE);
+        bgmPlayer.play();
+    }
+
+    private void playSE(String seFileName) {
+        String soundFile = getClass().getResource("/" + seFileName).toExternalForm();
+        Media media = new Media(soundFile);
+        sePlayer = new MediaPlayer(media);
+        sePlayer.setCycleCount(1);
+        sePlayer.play();
+    }
+
+    private void displayEffect(String effectImagePath, Enemy target) {
+        ImageView targetView = null;
+        for (Node node : enemyImageDisplayBox.getChildren()) {
+            if (node.getUserData() == target) {
+                targetView = (ImageView) node;
+                break;
+            }
+        }
+
+        if (targetView != null) {
+            double hboxWidth = enemyImageDisplayBox.getWidth();
+            double targetXInHBox = targetView.getLayoutX();
+            double targetWidth = targetView.getBoundsInParent().getWidth();
+            double newTranslateX = targetXInHBox - hboxWidth / 2 + targetWidth / 2;
+
+            effectImageView.setTranslateX(newTranslateX);
+            effectImageView.setTranslateY(0);
+        } else {
+            effectImageView.setTranslateX(0);
+            effectImageView.setTranslateY(0);
+        }
+
+        try {
+            Image effectImage = new Image(getClass().getResourceAsStream(effectImagePath));
+            effectImageView.setImage(effectImage);
+            effectImageView.setVisible(true);
+
+            javafx.animation.KeyFrame kf = new javafx.animation.KeyFrame(Duration.seconds(1),e -> effectImageView.setVisible(false));
+            javafx.animation.Timeline timeline = new javafx.animation.Timeline(kf);
+            timeline.play();
+        } catch (Exception e) {
+            System.err.println("エフェクト画像の読み込みに失敗しました。:" + e.getMessage());
+        }
+    }
+
+    private void updateTargetSelectionUI() {
+        for (Node node : enemyImageDisplayBox.getChildren()) {
+            if (node instanceof ImageView) {
+                ImageView iv = (ImageView) node;
+                if (iv.getUserData() == selectedTarget) {
+                    iv.setStyle("-fx-effect: dropshadow(three-pass-box, aqua, 10, 0.7, 0, 0)");
+                } else {
+                    iv.setStyle(null);
+                }
+            }
+        }
     }
 
     public static void main(String[] args) {
