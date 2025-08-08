@@ -398,22 +398,34 @@ public class HelloApplication extends Application {
             appendMessage("攻撃するターゲットがいません。モンスターをクリックして選択してください。");
             return;
         }
+        setActionButtonsDisabled(true);
+
         Enemy targetEnemy = selectedTarget;
 
         int playerAttackDamage = player.getEquippedWeapon().getAttackPower() + player.getLevel();
         targetEnemy.takeDamage(playerAttackDamage);
         appendMessage(player.getName() + "のこうげき！ " + targetEnemy.getName() + "に" + playerAttackDamage + "のダメージ！");
 
-        if (!targetEnemy.isAlive()) {
-            appendMessage(targetEnemy.getName() + " を倒した！");
-        }
-
         playSE("se_attack.mp3");
-        displayEffect("/effect_attack.png", targetEnemy);
 
-        updateEnemyStatsUI();
-        loadEnemyImages();
-        checkBattleEnd();
+        Runnable afterEffectActions = () -> {
+            if (!targetEnemy.isAlive()) {
+                appendMessage (targetEnemy.getName() + " を倒した！");
+            }
+
+            updateEnemyStatsUI();
+            loadEnemyImages();
+            checkBattleEnd();
+
+            if (currentState == GameState.BATTLE) {
+                enemyTurn();
+            } else {
+                setActionButtonsDisabled(false);
+            }
+        };
+        displayEffect("/effect_attack.png", targetEnemy, afterEffectActions);
+
+
 
         if (!targetEnemy.isAlive()) {
             loadEnemyImages();
@@ -426,37 +438,41 @@ public class HelloApplication extends Application {
     }
 
     private void handleMultiAttack() {
-        if (currentState != GameState.BATTLE) return;
+        if (currentState != GameState.BATTLE || !player.getEquippedWeapon().getName().equals("薙刀")) {
+            appendMessage("範囲攻撃は薙刀装備時のみ使えます。");
+            return;
+        }
 
-        if (player.getEquippedWeapon().getName().equals("薙刀")) {
+        setActionButtonsDisabled(true);
+        appendMessage(player.getName() + "の範囲攻撃！");
+        playSE("se_attack.mp3");
+
+        Runnable afterEffectActions = () -> {
             int baseDamage = player.getEquippedWeapon().getAttackPower() / 2 + player.getLevel();
-
-            appendMessage(player.getName() + "の範囲攻撃！");
-            playSE("se_attack.mp3");
-            displayEffect("/effect_multiattack.png", null);
-
-            boolean anyEnemyDefeated = false;
             for (Enemy enemy : currentEnemies) {
                 if (enemy.isAlive()) {
                     enemy.takeDamage(baseDamage);
                     appendMessage(enemy.getName() + "に" + baseDamage + "のダメージ！");
                     if (!enemy.isAlive()) {
                         appendMessage(enemy.getName() + " を倒した！");
-                        anyEnemyDefeated = true;
                     }
                 }
             }
+
             updateEnemyStatsUI();
             loadEnemyImages();
-
             checkBattleEnd();
+
             if (currentState == GameState.BATTLE) {
                 enemyTurn();
+            } else {
+                setActionButtonsDisabled(false);
             }
-        } else {
-            appendMessage("範囲攻撃は薙刀を装備している時のみ使えます！");
-        }
+        };
+
+        displayEffect("/effect_multiattack.png", null, afterEffectActions);
     }
+
 
     private void handleMagicSelect() {
         if (currentState != GameState.BATTLE) return;
@@ -475,9 +491,13 @@ public class HelloApplication extends Application {
         }
 
         if (selectedTarget == null || !selectedTarget.isAlive()) {
-            appendMessage("攻撃するターゲットがいません。モンスターをクリックして選択してください。");
+            appendMessage("魔法をつかうターゲットがいません。");
+            updateUIForState(GameState.BATTLE);
             return;
         }
+
+        setActionButtonsDisabled(true);
+
         Enemy targetEnemy = selectedTarget;
 
         int baseDamage = 10 + player.getLevel();
@@ -493,32 +513,38 @@ public class HelloApplication extends Application {
         updatePlayerStatsUI();
 
         playSE("se_magic.mp3");
+
+        Runnable afterEffectActions = () -> {
+            if (!targetEnemy.isAlive()) {
+                appendMessage(targetEnemy.getName() + " を倒した！");
+            }
+            updatePlayerStatsUI();
+            loadEnemyImages();
+            checkBattleEnd();
+
+            if (currentState == GameState.BATTLE) {
+                enemyTurn();
+            } else {
+                setActionButtonsDisabled(false);
+            }
+        };
+
+        String effectPath = "";
         switch (element) {
             case FIRE:
-                displayEffect("/effect_fire.png", targetEnemy);
+                effectPath = "/effect_fire.png";
                 break;
             case ICE:
-                displayEffect("/effect_ice.png", targetEnemy);
+                effectPath = "/effect_ice.png";
                 break;
             case THUNDER:
-                displayEffect("/effect_thunder.png", targetEnemy);
+                effectPath = "/effect_thunder.png";
                 break;
             case WIND:
-                displayEffect("/effect_wind.png", targetEnemy);
+                effectPath = "/effect_wind.png";
                 break;
         }
-
-        if (!targetEnemy.isAlive()) {
-            appendMessage(targetEnemy.getName() + " を倒した！");
-        }
-
-        updatePlayerStatsUI();
-        loadEnemyImages();
-
-        checkBattleEnd();
-        if (currentState == GameState.BATTLE) {
-            enemyTurn();
-        }
+        displayEffect(effectPath, targetEnemy, afterEffectActions);
     }
 
     private void handleUsePotion() {
@@ -604,6 +630,7 @@ public class HelloApplication extends Application {
                 }
             }
         }
+        setActionButtonsDisabled(false);
     }
 
     private void updatePlayerStatsUI() {
@@ -882,6 +909,7 @@ public class HelloApplication extends Application {
     }
 
     private void handleContinue() {
+        setActionButtonsDisabled(false);
         currentEnemies = null;
         updateEnemyStatsUI();
         updatePlayerStatsUI();
@@ -908,7 +936,7 @@ public class HelloApplication extends Application {
         sePlayer.play();
     }
 
-    private void displayEffect(String effectImagePath, Enemy target) {
+    private void displayEffect(String effectImagePath, Enemy target, Runnable onFinished) {
         ImageView targetView = null;
         for (Node node : enemyImageDisplayBox.getChildren()) {
             if (node.getUserData() == target) {
@@ -922,7 +950,6 @@ public class HelloApplication extends Application {
             double targetXInHBox = targetView.getLayoutX();
             double targetWidth = targetView.getBoundsInParent().getWidth();
             double newTranslateX = targetXInHBox - hboxWidth / 2 + targetWidth / 2;
-
             effectImageView.setTranslateX(newTranslateX);
             effectImageView.setTranslateY(0);
         } else {
@@ -937,9 +964,15 @@ public class HelloApplication extends Application {
 
             javafx.animation.KeyFrame kf = new javafx.animation.KeyFrame(Duration.seconds(1),e -> effectImageView.setVisible(false));
             javafx.animation.Timeline timeline = new javafx.animation.Timeline(kf);
+            if (onFinished != null) {
+                timeline.setOnFinished(event -> onFinished.run());
+            }
             timeline.play();
         } catch (Exception e) {
             System.err.println("エフェクト画像の読み込みに失敗しました。:" + e.getMessage());
+            if (onFinished != null) {
+                onFinished.run();
+            }
         }
     }
 
@@ -954,6 +987,19 @@ public class HelloApplication extends Application {
                 }
             }
         }
+    }
+
+    private void setActionButtonsDisabled(boolean disabled) {
+        attackButton.setDisable(disabled);
+        magicButton.setDisable(disabled);
+        potionButton.setDisable(disabled);
+        escapeButton.setDisable(disabled);
+        multiAttackButton.setDisable(disabled);
+
+        fireMagicButton.setDisable(disabled);
+        iceMagicButton.setDisable(disabled);
+        thunderMagicButton.setDisable(disabled);
+        windMagicButton.setDisable(disabled);
     }
 
     public static void main(String[] args) {
