@@ -20,6 +20,7 @@ import javafx.scene.layout.Priority;
 import javafx.stage.Stage;
 import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
+import javafx.animation.Animation;
 import javafx.util.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -81,6 +82,7 @@ public class HelloApplication extends Application {
 
 
     private enum GameState {
+        TITLE,
         EXPLORING,
         BATTLE,
         MAGIC_SELECT,
@@ -114,10 +116,18 @@ public class HelloApplication extends Application {
     private MediaPlayer bgmPlayer;
     private MediaPlayer sePlayer;
     private ImageView effectImageView;
+    private List<ImageView> multiEffectViews = new ArrayList<>();
 
     private int gainedExp;
     private int gainedGold;
     private boolean leveledUp;
+    private String currentBgm = "";
+
+    private boolean isTransitioning = false;
+
+    private StackPane rootPane;
+    private VBox titlePane;
+    private VBox gamePane;
 
     @Override
     public void start(Stage primaryStage) {
@@ -125,7 +135,7 @@ public class HelloApplication extends Application {
         player = new Player("勇者", 30, 1);
         gameMap = new GameMap(MAP_DISPLAY_WIDTH, MAP_DISPLAY_HEIGHT);
         town = new Town();
-        currentState = GameState.EXPLORING;
+        currentState = GameState.TITLE;
 
         playerNameLabel = new Label("名前: " + player.getName());
         playerHpLabel = new Label("HP: " + player.getHp() + "/" + player.getMaxHp());
@@ -245,9 +255,9 @@ public class HelloApplication extends Application {
         enemyImageDisplayBox.setPrefHeight(200);
         enemyImageDisplayBox.setVisible(false);
 
-        VBox root = new VBox(10);
-        root.setPadding(new Insets(20));
-        root.setAlignment(Pos.TOP_CENTER);
+        gamePane = new VBox(10);
+        gamePane.setPadding(new Insets(20));
+        gamePane.setAlignment(Pos.TOP_CENTER);
         VBox.setVgrow(messageTextArea, Priority.ALWAYS);
 
         VBox playerStatsBox = new VBox(5, playerNameLabel, playerHpLabel, playerMpLabel, playerLevelExpLabel, playerPotionLabel, playerWeaponLabel, playerGoldLabel);
@@ -276,14 +286,35 @@ public class HelloApplication extends Application {
 
         playBGM("bgm_field.mp3");
 
-        root.getChildren().addAll(
+        gamePane.getChildren().addAll(
                 topInfoBox,
                 mainContentPane,
                 messageTextArea,
                 buttonPanel
         );
 
-        Scene scene = new Scene(root, 600, 750);
+        titlePane = new VBox(20);
+        titlePane.setAlignment(Pos.CENTER);
+        try {
+            Image titleImage = new Image(getClass().getResourceAsStream("/title.png"));
+            ImageView titleView = new ImageView(titleImage);
+            titleView.setPreserveRatio(true);
+            titleView.setFitWidth(500);
+
+            Label startLabel = new Label ("キーを押してゲームを開始してください");
+            startLabel.setStyle("-fx-font-size: 20px; -fx-text-fill: white;");
+
+            titlePane.getChildren().addAll(titleView, startLabel);
+            titlePane.setStyle("-fx-background-color: black;");
+        } catch (Exception e) {
+            System.err.println("タイトル画像の読込に失敗しました: " + e.getMessage());
+            titlePane.getChildren().add(new Label("画像の読込に失敗"));
+        }
+
+        rootPane = new StackPane();
+        rootPane.getChildren().addAll(gamePane, titlePane);
+
+        Scene scene = new Scene(rootPane, 600, 750);
         primaryStage.setTitle("YUIT QUEST");
         primaryStage.setScene(scene);
         primaryStage.show();
@@ -292,7 +323,7 @@ public class HelloApplication extends Application {
         scene.getRoot().requestFocus();
 
         updatePlayerStatsUI();
-        updateUIForState(GameState.EXPLORING);
+        updateUIForState(GameState.TITLE);
     }
 
     private void updatePlayerPositionOnMap() {
@@ -303,6 +334,22 @@ public class HelloApplication extends Application {
     }
 
     private void handleKeyPress(KeyEvent event) {
+        if (currentState == GameState.TITLE) {
+            if (!isTransitioning) {
+                isTransitioning = true;
+
+                String soundFile = getClass().getResource("/se_start.mp3").toExternalForm();
+                Media media = new Media(soundFile);
+                MediaPlayer startSePlayer = new MediaPlayer(media);
+                startSePlayer.setOnEndOfMedia(() -> {
+                    javafx.application.Platform.runLater(() -> {
+                        updateUIForState(GameState.EXPLORING);
+                    });
+                });
+                startSePlayer.play();
+            }
+            return;
+        }
         if (currentState == GameState.EXPLORING) {
             int oldPlayerX = playerX;
             int oldPlayerY = playerY;
@@ -408,9 +455,11 @@ public class HelloApplication extends Application {
 
         playSE("se_attack.mp3");
 
+        SpriteData attackSpriteData = new SpriteData(120, 120, 9, 1);
+
         Runnable afterEffectActions = () -> {
             if (!targetEnemy.isAlive()) {
-                appendMessage (targetEnemy.getName() + " を倒した！");
+                appendMessage(targetEnemy.getName() + " を倒した！");
             }
 
             updateEnemyStatsUI();
@@ -423,18 +472,7 @@ public class HelloApplication extends Application {
                 setActionButtonsDisabled(false);
             }
         };
-        displayEffect("/effect_attack.png", targetEnemy, afterEffectActions);
-
-
-
-        if (!targetEnemy.isAlive()) {
-            loadEnemyImages();
-        }
-
-        checkBattleEnd();
-        if (currentState == GameState.BATTLE) {
-            enemyTurn();
-        }
+        displayEffect("/effect_attack.png", attackSpriteData, targetEnemy, afterEffectActions);
     }
 
     private void handleMultiAttack() {
@@ -446,6 +484,7 @@ public class HelloApplication extends Application {
         setActionButtonsDisabled(true);
         appendMessage(player.getName() + "の範囲攻撃！");
         playSE("se_attack.mp3");
+        SpriteData multiAttackSpriteData = new SpriteData(640, 480, 16, 1);
 
         Runnable afterEffectActions = () -> {
             int baseDamage = player.getEquippedWeapon().getAttackPower() / 2 + player.getLevel();
@@ -469,8 +508,16 @@ public class HelloApplication extends Application {
                 setActionButtonsDisabled(false);
             }
         };
+        List<Enemy> aliveEnemies = new ArrayList<>();
+        if (currentEnemies != null) {
+            for (Enemy e : currentEnemies) {
+                if (e.isAlive()) {
+                    aliveEnemies.add(e);
+                }
+            }
+        }
 
-        displayEffect("/effect_multiattack.png", null, afterEffectActions);
+        displayMultiTargetEffect("/effect_multiattack.png", multiAttackSpriteData, aliveEnemies.toArray(new Enemy[0]), afterEffectActions);
     }
 
 
@@ -529,22 +576,32 @@ public class HelloApplication extends Application {
             }
         };
 
-        String effectPath = "";
+        String effectPath;
+        SpriteData magicSpriteData;
+
         switch (element) {
             case FIRE:
                 effectPath = "/effect_fire.png";
+                magicSpriteData = new SpriteData (320, 240, 10, 1);
                 break;
             case ICE:
                 effectPath = "/effect_ice.png";
+                magicSpriteData = new SpriteData (192, 192, 10, 1);
                 break;
             case THUNDER:
                 effectPath = "/effect_thunder.png";
+                magicSpriteData = new SpriteData (192, 192, 10, 1);
                 break;
             case WIND:
                 effectPath = "/effect_wind.png";
+                magicSpriteData = new SpriteData (192, 192, 10, 1);
                 break;
+            default:
+                appendMessage("しかし、何も起こらなかった！");
+                setActionButtonsDisabled(false);
+                return;
         }
-        displayEffect(effectPath, targetEnemy, afterEffectActions);
+        displayEffect(effectPath, magicSpriteData, targetEnemy, afterEffectActions);
     }
 
     private void handleUsePotion() {
@@ -597,11 +654,23 @@ public class HelloApplication extends Application {
 
         if (allEnemiesDead) {
             if (currentEnemies != null && currentEnemies.length == 1 && currentEnemies[0].getName().equals("ドラゴン") && !currentEnemies[0].isAlive()) {
-                appendMessage("\n*** ドラゴンを打ち倒し。世界に平和が訪れた！ ***");
+                appendMessage("\n*** ドラゴンを打ち倒し、世界に平和が訪れた！ ***");
                 appendMessage("ゲームクリア！おめでとう！");
                 player.addGold(totalGold);
                 updatePlayerStatsUI();
                 updateUIForState(GameState.GAMEOVER);
+
+                if (bgmPlayer != null) {
+                    bgmPlayer.stop();
+                }
+                playBGM("bgm_game_clear.mp3");
+
+                attackButton.setVisible(false);
+                magicButton.setVisible(false);
+                potionButton.setVisible(false);
+                escapeButton.setVisible(false);
+                multiAttackButton.setVisible(false);
+                magicButtonsBox.setVisible(false);
             } else {
                 appendMessage("\n敵をすべてたおした！");
                 player.gainExp(totalExp);
@@ -692,11 +761,17 @@ public class HelloApplication extends Application {
         townButtonsBox.setVisible(false);
         weaponShopScrollPane.setVisible(false);
 
+        titlePane.setVisible(false);
+        gamePane.setVisible(false);
         mapAndPlayerPane.setVisible(false);
         enemyImageDisplayBox.setVisible(false);
         resultScrollPane.setVisible(false);
 
-        if (currentState == GameState.EXPLORING) {
+        if (currentState == GameState.TITLE) {
+            titlePane.setVisible(true);
+            playBGM("bgm_title.mp3");
+        } else if (currentState == GameState.EXPLORING) {
+            gamePane.setVisible(true);
             mapAndPlayerPane.setVisible(true);
             updateEnemyStatsUI();
             appendMessage("\n現在地: (" + playerX + ", " + playerY + ")\n矢印キーで移動してください。");
@@ -705,7 +780,7 @@ public class HelloApplication extends Application {
             }
             playBGM("bgm_field.mp3");
         } else if (currentState == GameState.BATTLE) {
-            mapAndPlayerPane.setVisible(false);
+            gamePane.setVisible(true);
             enemyImageDisplayBox.setVisible(true);
             attackButton.setVisible(true);
             magicButton.setVisible(true);
@@ -715,12 +790,17 @@ public class HelloApplication extends Application {
                 multiAttackButton.setVisible(true);
             }
             updateEnemyStatsUI();
-            playBGM("bgm_nomal_battle.mp3");
+            if (currentEnemies != null && currentEnemies.length == 1 && currentEnemies[0].getName().equals("ドラゴン")) {
+                playBGM ("bgm_boss_battle.mp3");
+            } else {
+                playBGM("bgm_nomal_battle.mp3");
+            }
         } else if (currentState == GameState.MAGIC_SELECT) {
-            mapAndPlayerPane.setVisible(false);
+            gamePane.setVisible(true);
             enemyImageDisplayBox.setVisible(true);
             magicButtonsBox.setVisible(true);
         } else if (currentState == GameState.BATTLE_RESULT) {
+            gamePane.setVisible(true);
             resultScrollPane.setVisible(true);
             resultLabelExp.setText("経験値 " + gainedExp + " を獲得した！");
             resultLabelGold.setText("所持金が " + gainedGold + " GOLD増えた！");
@@ -730,24 +810,24 @@ public class HelloApplication extends Application {
                 resultLabelLevelUp.setText("");
             }
             appendMessage("\n戦闘に勝利した！");
+
+            if (bgmPlayer != null) {
+                bgmPlayer.stop();
+                currentBgm = "";
+            }
+            playSE("se_result.mp3");
         } else if (currentState == GameState.GAMEOVER) {
-            mapAndPlayerPane.setVisible(false);
-            enemyImageDisplayBox.setVisible(false);
+            gamePane.setVisible(true);
             playBGM("bgm_gameover.mp3");
-        } else if (currentState == GameState.WIN_ROUND) {
-            mapAndPlayerPane.setVisible(false);
-            enemyImageDisplayBox.setVisible(false);
-            currentEnemies = null;
-            updateEnemyStatsUI();
-            appendMessage("冒険を続ける...");
-            updateUIForState(GameState.EXPLORING);
         } else if (currentState == GameState.IN_TOWN) {
+            gamePane.setVisible(true);
             mapAndPlayerPane.setVisible(true);
             townButtonsBox.setVisible(true);
             updateEnemyStatsUI();
             appendMessage("\n村に到着した。何をしますか？");
             playBGM("bgm_town.mp3");
         } else if (currentState == GameState.WEAPON_SHOP) {
+            gamePane.setVisible(true);
             mapAndPlayerPane.setVisible(true);
             weaponShopScrollPane.setVisible(true);
             appendMessage("\n武器屋：いらっしゃい！");
@@ -918,14 +998,30 @@ public class HelloApplication extends Application {
     }
 
     private void playBGM(String bgmFileName) {
+        if (bgmFileName != null && bgmFileName.equals(currentBgm) && bgmPlayer != null && bgmPlayer.getStatus() == MediaPlayer.Status.PLAYING) {
+            return;
+        }
+
         if (bgmPlayer != null) {
             bgmPlayer.stop();
         }
-        String musicFile = getClass().getResource("/" + bgmFileName).toExternalForm();
-        Media media = new Media(musicFile);
-        bgmPlayer = new MediaPlayer(media);
-        bgmPlayer.setCycleCount(MediaPlayer.INDEFINITE);
-        bgmPlayer.play();
+
+        if (bgmFileName == null || bgmFileName.isEmpty()) {
+            currentBgm = "";
+            return;
+        }
+
+        try {
+            String musicFile = getClass().getResource("/" + bgmFileName).toExternalForm();
+            Media media = new Media(musicFile);
+            bgmPlayer = new MediaPlayer(media);
+            bgmPlayer.setCycleCount(MediaPlayer.INDEFINITE);
+            bgmPlayer.play();
+            currentBgm = bgmFileName;
+        } catch (Exception e) {
+            System.err.println("BGMの読み込みに失敗しました: " + bgmFileName + "エラー: " + e.getMessage());
+            currentBgm = "";
+        }
     }
 
     private void playSE(String seFileName) {
@@ -936,44 +1032,123 @@ public class HelloApplication extends Application {
         sePlayer.play();
     }
 
-    private void displayEffect(String effectImagePath, Enemy target, Runnable onFinished) {
-        ImageView targetView = null;
-        for (Node node : enemyImageDisplayBox.getChildren()) {
-            if (node.getUserData() == target) {
-                targetView = (ImageView) node;
-                break;
-            }
-        }
-
-        if (targetView != null) {
-            double hboxWidth = enemyImageDisplayBox.getWidth();
-            double targetXInHBox = targetView.getLayoutX();
-            double targetWidth = targetView.getBoundsInParent().getWidth();
-            double newTranslateX = targetXInHBox - hboxWidth / 2 + targetWidth / 2;
-            effectImageView.setTranslateX(newTranslateX);
-            effectImageView.setTranslateY(0);
-        } else {
-            effectImageView.setTranslateX(0);
-            effectImageView.setTranslateY(0);
-        }
-
+    private void displayEffect(String effectImagePath, SpriteData spriteData, Enemy target, Runnable onFinished) {
         try {
             Image effectImage = new Image(getClass().getResourceAsStream(effectImagePath));
             effectImageView.setImage(effectImage);
-            effectImageView.setVisible(true);
 
-            javafx.animation.KeyFrame kf = new javafx.animation.KeyFrame(Duration.seconds(1),e -> effectImageView.setVisible(false));
-            javafx.animation.Timeline timeline = new javafx.animation.Timeline(kf);
-            if (onFinished != null) {
-                timeline.setOnFinished(event -> onFinished.run());
+            final int frameWidth = spriteData.getFrameWidth();
+            final int frameHeight = spriteData.getFrameHeight();
+            final int numFrames = spriteData.getNumFrames();
+            final int columns = spriteData.getColumns();
+            final Duration duration = Duration.millis(1000);
+
+            final Animation animation = new SpriteAnimation(
+                    effectImageView, duration, numFrames, columns, frameWidth, frameHeight
+            );
+
+            animation.setOnFinished(event -> {
+                effectImageView.setVisible(false);
+                if (onFinished != null) {
+                    onFinished.run();
+                }
+            });
+
+            ImageView targetView = null;
+            if (target != null) {
+                for (Node node : enemyImageDisplayBox.getChildren()) {
+                    if (node.getUserData() == target) {
+                        targetView = (ImageView) node;
+                        break;
+                    }
+                }
             }
-            timeline.play();
+            if (targetView != null) {
+                double hboxWidth = enemyImageDisplayBox.getWidth();
+                double targetXInHBox = targetView.getLayoutX();
+                double targetWidth = targetView.getBoundsInParent().getWidth();
+                double newTranslateX = targetXInHBox - hboxWidth / 2 + targetWidth / 2;
+                effectImageView.setTranslateX(newTranslateX);
+                effectImageView.setTranslateY(0);
+            } else {
+                effectImageView.setTranslateX(0);
+                effectImageView.setTranslateY(0);
+            }
+
+            effectImageView.setVisible(true);
+            animation.play();
         } catch (Exception e) {
             System.err.println("エフェクト画像の読み込みに失敗しました。:" + e.getMessage());
             if (onFinished != null) {
                 onFinished.run();
             }
         }
+    }
+
+    private void displayMultiTargetEffect(String effectImagePath, SpriteData spriteData, Enemy[] targets, Runnable onFinished) {
+        mainContentPane.getChildren().removeAll(multiEffectViews);
+        multiEffectViews.clear();
+
+        Image effectImage;
+        try {
+            effectImage = new Image(getClass().getResourceAsStream(effectImagePath));
+        } catch (Exception e) {
+            System.err.println("エフェクトの読込に失敗しました: " + e.getMessage());
+            if (onFinished != null) onFinished.run();
+            return;
+        }
+
+        List<Animation> animations = new ArrayList<>();
+
+        for (Enemy target : targets) {
+            ImageView targetView = null;
+            for (Node node : enemyImageDisplayBox.getChildren()) {
+                if (node.getUserData() == target) {
+                    targetView = (ImageView) node;
+                    break;
+                }
+            }
+            if (targetView == null) continue;
+
+            ImageView newEffectView = new ImageView(effectImage);
+            newEffectView.setFitWidth(100);
+            newEffectView.setFitHeight(100);
+            newEffectView.setPreserveRatio(true);
+
+            double hboxWidth = enemyImageDisplayBox.getWidth();
+            double targetXInHBox = targetView.getLayoutX();
+            double targetWidth = targetView.getBoundsInParent().getWidth();
+            double newTranslateX = targetXInHBox - hboxWidth / 2 + targetWidth / 2;
+            newEffectView.setTranslateX(newTranslateX);
+            newEffectView.setTranslateY(0);
+
+            multiEffectViews.add(newEffectView);
+            animations.add(new SpriteAnimation(
+                    newEffectView,
+                    Duration.millis(1000),
+                    spriteData.getNumFrames(),
+                    spriteData.getColumns(),
+                    spriteData.getFrameWidth(),
+                    spriteData.getFrameHeight()
+            ));
+        }
+
+        if (animations.isEmpty()) {
+            if (onFinished != null) onFinished.run();
+            return;
+        }
+
+        mainContentPane.getChildren().addAll(multiEffectViews);
+
+        javafx.animation.ParallelTransition parallelTransition = new javafx.animation.ParallelTransition(animations.toArray(new Animation[0]));
+        parallelTransition.setOnFinished(event -> {
+            mainContentPane.getChildren().removeAll(multiEffectViews);
+            multiEffectViews.clear();
+            if (onFinished != null) {
+                onFinished.run();
+            }
+        });
+        parallelTransition.play();
     }
 
     private void updateTargetSelectionUI() {
