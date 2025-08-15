@@ -623,6 +623,7 @@ public class HelloApplication extends Application {
         if (random.nextBoolean()) {
             appendMessage(player.getName() + "はうまく逃げ出した！");
             currentEnemies = null;
+            selectedTarget = null;
             updateEnemyStatsUI();
             updateUIForState(GameState.EXPLORING);
         } else {
